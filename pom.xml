@@ -35,9 +35,12 @@
         <jedis.version>3.3.0</jedis.version>
         <flink.doris.version>1.5.0</flink.doris.version>
         <lombok.version>1.18.22</lombok.version>
+        <hbase.version>2.4.11</hbase.version>
     </properties>
 
     <dependencies>
+
+
         <!-- 必须引入的 -->
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -174,6 +177,13 @@
                 <artifactId>flink-connector-mysql-cdc</artifactId>
                 <version>${flink-cdc.vesion}</version>
             </dependency>
+
+            <dependency>
+                <groupId>org.apache.hbase</groupId>
+                <artifactId>hbase-client</artifactId>
+                <version>${hbase.version}</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
