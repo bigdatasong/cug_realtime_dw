@@ -1,6 +1,7 @@
 package cn.cug.edu.common.util;
 
 import javafx.scene.AmbientLight;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
  *          但是要注意创建一个表的话 就是需要通过admin对象的api createtable 来创建
  *          ，并且table和admin都是线程不安全的
  */
+@Slf4j
 public class HbaseUtil {
 
     // 所以我们需要一个connection对象 在类中要想保持对象只有一个 就必须是单例，可以通过静态代码块加静态属性的方式来获取
@@ -180,9 +182,53 @@ public class HbaseUtil {
 
             admin.createTable(TableDescriptorBuilder.newBuilder(gettbName(ns,tbName)).setColumnFamilies(columnFamilyDescriptors).build());
         }
-
-
     }
 
+    //实现对表的删除
+    public static Boolean dropTable(Admin admin,String ns,String tbName) throws IOException {
+
+        // 先判断表是否存在 表存在就不需要删除
+        if (!isTableExist(admin,ns,tbName)){
+            log.warn(tbName + "这个表存在");
+            return false;
+        }
+        //删除表前需要先移除表
+        admin.disableTable(gettbName(ns,tbName));
+        admin.deleteTable(gettbName(ns,tbName));
+        return true;
+    }
+
+    // 接下来来开始封装对表数据的crud，需要一个table对象，所以可以提前封装方法实现table对象的返回，
+    //还有就是插入数据时，put 表示的是对单行的插入，get表示的是对单行的查询，scan 表示的是对多行的查询
+    //put 或者get 一行都需要 精确到列值 即 表名 rowkey 列族名：列名 列值
+    //另外因为put对象是比较难封装的，所以也可以定义一个方法来返回put对象
+
+    // 实现table对象的返回
+    public static Table getTable(String ns, String tb) throws IOException {
+        // 同样先判断参数是否合法
+        if (StringUtils.isAnyBlank(ns,tb)) {
+            //说明参数不合法
+            throw new RuntimeException("表名或者库名不合法！！");
+        }
+
+        // 调用connection的方法
+        Table table = hbaseConnection.getTable(gettbName(ns, tb));
+        return table;
+    }
+
+    // 实现对put对象的返回 参数分别是rowkey 列族 列名 列值
+    public static Put getPut(String rk,String cf,String cn,String value){
+
+        //判断参数是否合法
+        if (StringUtils.isAnyBlank(rk,cf,cn,value)) {
+            throw new RuntimeException("参数不合法！！");
+        }
+        //封装put对象 一个put表示的是对单行的操作 即对应单行 而rowkey就表示一个单行的意思
+        Put put = new Put(Bytes.toBytes(rk));
+        // 还需要封装其他的参数 分别是列族 列名 列值
+        put.addColumn(Bytes.toBytes(cf), Bytes.toBytes(cn),Bytes.toBytes(value));
+        return put;
+
+    }
 
 }
