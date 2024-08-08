@@ -36,6 +36,8 @@
         <flink.doris.version>1.5.0</flink.doris.version>
         <lombok.version>1.18.22</lombok.version>
         <hbase.version>2.4.11</hbase.version>
+        <druid.version>1.2.15</druid.version>
+        <dbutils.version>1.6</dbutils.version>
     </properties>
 
     <dependencies>
@@ -167,8 +169,6 @@
             </exclusions>
         </dependency>
 
-
-
     </dependencies>
 
     <dependencyManagement>
@@ -210,6 +210,18 @@
                         <artifactId>slf4j-reload4j</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>druid</artifactId>
+                <version>${druid.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>commons-dbutils</groupId>
+                <artifactId>commons-dbutils</artifactId>
+                <version>${dbutils.version}</version>
             </dependency>
 
 

@@ -4,13 +4,16 @@ import cn.cug.edu.common.base.BaseDataStreamApp;
 import cn.cug.edu.common.pojo.TableProcess;
 import cn.cug.edu.common.util.ConfigUtil;
 import cn.cug.edu.common.util.HbaseUtil;
+import cn.cug.edu.common.util.JdbcUtil;
 import cn.cug.edu.common.util.MysqlUtil;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.BroadcastState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
@@ -25,9 +28,7 @@ import org.apache.flink.streaming.api.functions.co.BroadcastProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.hadoop.hbase.client.Admin;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -72,7 +73,14 @@ public class DimApp extends BaseDataStreamApp {
         //调试的时候也可以将其打印
         tuple2SingleOutputStreamOperator.print();
 
+        //接下来还有一个过程中 就是在配置表中 每个表的需要得到的字段是限定的，所以不是所有的维度数据的字段都需要
+        //定义一个方法实现字段的过滤
+        SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> operator = dropFields(tuple2SingleOutputStreamOperator);
+        //可以通过print来调试
+        operator.print();
+
     }
+
 
 
     /**
@@ -231,6 +239,37 @@ public class DimApp extends BaseDataStreamApp {
         //连接
         SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> process = etlData.connect(broadcast).process(new BroadcastProcessFunction<String, TableProcess, Tuple2<JSONObject, TableProcess>>() {
 
+            /**
+             * 最后一个问题就是 配置流和数据流来的时候是没有时间先后的，就会出现一种情况就是业务数据流来的时候，去状态中取得时候
+             * 状态中没有对应的维度数据，应该想办法就让他马上得到数据 ，
+             * 解决思路就是在open方法中先去读取mysql配置表中的数据，一次性读取出来，然后存到内存中，供业务数据流来使用
+             * 需要注意可能会想到用状态来读取，但是呢，生命周期方法他不能操作状态，所以只要是简单的rowstate就可以
+             * 那么就涉及到备份和恢复问题，rowstate他是不能由flink自己管理的
+             * 但是我们只是读取msyql的一张表，数据是存放在mysql中，相当于是永久性存储，数据不会丢所以不用考虑备份问题
+             *
+             * 因为是生命周期方法所以就会马上执行 也就不用考虑恢复问题
+             *
+             * 定义一个map key就是source_type value就可以是tableprocess 这个rowstate是给业务数据流用的，当从状态中取不到
+             * 就从这个map中去取，所以说key和value是这样设计
+             * 然后考虑用jdbc的方式去读取mysql 因为要用到java来操作mysql
+             */
+
+            private HashMap<String,TableProcess> hashMap = new HashMap<>();
+            @Override
+            public void open(Configuration parameters) throws Exception {
+                //通过jdbc工具类读取配置数据
+                String sql = "select * from table_process where sink_type = 'DIM' ";
+
+                List<TableProcess> tableProcesses = JdbcUtil.queryList(sql, TableProcess.class);
+
+//                封装到一个map中 这个map在其他方法也是要使用的
+
+                tableProcesses.stream().map(t -> hashMap.put(t.getSourceTable(),t));
+
+            }
+
+
+
 
             // 两个方法 第一个方法就是每来一条业务数据如果处理 第二个方法就是每来一条配置流数据如何处理 其中可以发现
             //两者方法的context是不一样的，前者的context只能读取状态，后者的context可以修改状态
@@ -238,6 +277,7 @@ public class DimApp extends BaseDataStreamApp {
 
             @Override
             public void processElement(String s, ReadOnlyContext readOnlyContext, Collector<Tuple2<JSONObject, TableProcess>> collector) throws Exception {
+
 
                 // 连接的目的就是将业务数据流中配置数据和配置流一一对应，然后将配置数据写入hbase中，
                 //如何对应呢，业务数据中有table字段可以知道是不是维度数据，还有就是在配置表中还有一个source_type字段 表示的是当前维度表的什么操作应该被记录
@@ -254,9 +294,27 @@ public class DimApp extends BaseDataStreamApp {
                 ReadOnlyBroadcastState<String, TableProcess> broadcastState = readOnlyContext.getBroadcastState(mapstatdescriptor);
                 TableProcess tableProcess = broadcastState.get(table);
                 String sourceType = tableProcess.getSourceType();
+
+                // 处理open方法中的结果
+                //可以知道首先获取到的tableProcess是null的情况有两种
+                // 要么就是 获取的不是维度数据而是事实数据
+                //要么是维度数据 但是状态中没有维度数据 还没到 此时就从内存中获取即可
+                if (tableProcess == null){
+                    //从内存中获取数据可以日志记录一下
+                    log.warn("在状态中没有找到" + tableProcess);
+                    tableProcess = hashMap.get(table);
+                }
+
                 if (tableProcess != null) {
                     // 说明 这个是维度数据   还有就是data也是json 所以可以调用方法直接得到一个jsonobject
+
+                    // 目前的data 在原始数据中是一个没有操作类型的数据 就是对于这条数据来说没有type类型，应该对每条数据都补充type类型
+
                     JSONObject data = jsonObject.getJSONObject("data");
+
+                    // 为每条维度数据补充type类型
+                    data.put("op_type",type);
+
                     if ("All".equals(sourceType)) {
                         //说明所有操作都可以
                         //向下游输出即可  向下游封装时 原始数据中其实真正的数据在data上，所以其实就把data封装成jsonobject为tuple2中key即可
@@ -294,6 +352,36 @@ public class DimApp extends BaseDataStreamApp {
 
         return process;
     }
+
+    private SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> dropFields(SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> tuple2SingleOutputStreamOperator) {
+
+        //实现字段的过滤思路
+        //现在流中的tuple2中的数据jsonobject就是data数据 我们需要做的就是再次封装 过滤出需要的字段作为jsonobject
+        //先将流中数据获取出来
+        SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> opType = tuple2SingleOutputStreamOperator.map(new MapFunction<Tuple2<JSONObject, TableProcess>, Tuple2<JSONObject, TableProcess>>() {
+            @Override
+            public Tuple2<JSONObject, TableProcess> map(Tuple2<JSONObject, TableProcess> jsonObjectTableProcessTuple2) throws Exception {
+                //先将流中数据获取出来
+                JSONObject f0 = jsonObjectTableProcessTuple2.f0;
+                TableProcess f1 = jsonObjectTableProcessTuple2.f1;
+                String sinkColumns = f1.getSinkColumns(); //这里存放着所有需要的字段 为了进一步封装 在拼接一个data中的op_type字段表示的是对这条数据的操作
+                //为什么是optype 是因为在data中上一步提前封装了这个字段
+                String opType = f0.getString("op_type");
+                String concat = sinkColumns.concat(opType);
+                //将其分割后转为set集合
+                Set<String> filedSet = Arrays.stream(concat.split(",")).collect(Collectors.toSet());
+                //获取的思路就要判断f0中的字段是否在fildset中如果在的话就重新封装一个jsonobject
+                //因为jsonobect本质还是一个map 所以可以通过一个工具来 maps 工具类中有一个方法可以实现指定一个map中的key的过滤条件从而实现过滤
+                Map<String, Object> stringObjectMap = Maps.filterKeys(f0, k -> filedSet.contains(k));
+                //得到过滤后的map以后可以重新定义一个jsonobject 因为jsonobject本质就是map 所以他的有参构造器中就可以传入一个map来new 类
+                JSONObject jsonObject = new JSONObject(stringObjectMap);
+                return Tuple2.of(jsonObject, f1);
+            }
+        });
+
+        return opType;
+    }
+
 
 
 
