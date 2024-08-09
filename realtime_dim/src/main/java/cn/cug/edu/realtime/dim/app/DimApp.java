@@ -6,6 +6,7 @@ import cn.cug.edu.common.util.ConfigUtil;
 import cn.cug.edu.common.util.HbaseUtil;
 import cn.cug.edu.common.util.JdbcUtil;
 import cn.cug.edu.common.util.MysqlUtil;
+import cn.cug.edu.realtime.dim.app.function.HbaseSink;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.google.common.collect.Maps;
@@ -77,6 +78,10 @@ public class DimApp extends BaseDataStreamApp {
         //定义一个方法实现字段的过滤
         SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> operator = dropFields(tuple2SingleOutputStreamOperator);
         //可以通过print来调试
+        operator.print();
+
+        operator.addSink(new HbaseSink());
+        //同样也可以调试的时候打印一下
         operator.print();
 
     }
@@ -254,7 +259,7 @@ public class DimApp extends BaseDataStreamApp {
              * 然后考虑用jdbc的方式去读取mysql 因为要用到java来操作mysql
              */
 
-            private HashMap<String,TableProcess> hashMap = new HashMap<>();
+            private final HashMap<String,TableProcess> hashMap = new HashMap<>();
             @Override
             public void open(Configuration parameters) throws Exception {
                 //通过jdbc工具类读取配置数据
@@ -381,8 +386,4 @@ public class DimApp extends BaseDataStreamApp {
 
         return opType;
     }
-
-
-
-
 }
