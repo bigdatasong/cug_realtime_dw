@@ -1,10 +1,14 @@
 package cn.cug.edu.common.util;
 
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.connector.base.DeliveryGuarantee;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.KafkaSourceBuilder;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 
 /**
  * author song
@@ -33,6 +37,27 @@ public class KafkaUtil {
 
         return kafkaSource;
 
+
+    }
+
+    // 定义一个静态方法 实现返回kafkasink的方法
+    public static KafkaSink<String> getKfSink(String topic){
+
+        //作为kafkasink表示的是一个生产者 就需要一个topic 以及连接地址 以及对value的序列化
+        KafkaSink<String> kafkasink = KafkaSink.<String>builder()
+                .setBootstrapServers(ConfigUtil.getString("KAFKA_BROKERS"))
+                .setRecordSerializer(KafkaRecordSerializationSchema.<String>builder()
+                        .setValueSerializationSchema(new SimpleStringSchema())
+                        //这里的topic 不是固定的 需要参数传递进来
+                        .setTopic(topic)
+                        .build())
+                .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
+                .setTransactionalIdPrefix("song-" + topic)
+                .setProperty(ProducerConfig.BATCH_SIZE_CONFIG, "1000")
+                .setProperty(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, 10 * 60 * 1000 + "")
+                .build();
+
+        return kafkasink;
 
     }
 

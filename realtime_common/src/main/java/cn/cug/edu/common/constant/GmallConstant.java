@@ -5,7 +5,19 @@ package cn.cug.edu.common.constant;
  * date 2024-08-03 16:27
  * Desc
  */
-public class GmallConstant {
+public interface GmallConstant {
+
+    //定义和新老客户有关标记
+    String ISNEWOLD = "0";
+    String ISNEWEW = "1";
+
+    //接口中常量一定是static final类型
+    //定义日志分流的属性名
+    String START = "start";
+    String ERR = "err";
+    String DISPLAY = "displays";
+    String PAGE = "page";
+    String ACTION = "actions";
 
     //dwd日志相关
     String TOPIC_DWD_TRAFFIC_START = "dwd_traffic_start";
