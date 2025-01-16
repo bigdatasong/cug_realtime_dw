@@ -54,6 +54,7 @@ public class KafkaUtil {
                 .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
                 .setTransactionalIdPrefix("song-" + topic)
                 .setProperty(ProducerConfig.BATCH_SIZE_CONFIG, "1000")
+                .setProperty(ProducerConfig.LINGER_MS_CONFIG,"1000")
                 .setProperty(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, 10 * 60 * 1000 + "")
                 .build();
 

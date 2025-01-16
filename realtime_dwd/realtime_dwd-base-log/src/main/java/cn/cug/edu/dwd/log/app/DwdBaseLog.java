@@ -85,8 +85,8 @@ public class DwdBaseLog extends BaseDataStreamApp {
         SingleOutputStreamOperator<JSONObject> correctNewUser = correctNewUser(kfSource);
 
         //可以调试的时候用
-        correctNewUser.print();
-
+//        correctNewUser.print();
+//
         //接下来就是写出到kafka中，需要一个kafkasink工具类 返回一个kafkasink
 
         //写好工具类以后 可以定义一个方法将数据分流写出
@@ -288,7 +288,9 @@ public class DwdBaseLog extends BaseDataStreamApp {
                     }
 
                     // 都需要进行测流输出
-                    context.output(tag, jsonObject.toString());
+                    context.output(tag, jsonObject.toJSONString());
+
+
 
                 }
 
@@ -306,14 +308,14 @@ public class DwdBaseLog extends BaseDataStreamApp {
                     //说明是启动日志调用方法进行 封装 并且主流输出
                     JSONObject startData = parseData(common, ts, GmallConstant.START, jsonObject);
                     //主流输出
-                    collector.collect(startData.toString());
+                    collector.collect(startData.toJSONString());
                 } else {
                     //说明一定是page日志，但是也有可能还是动作或者曝光日志，无论是什么都需要测流输出，测流输出需要测流输出标记，所以需要在前面先定义测流输出标记
 
                     //定义好测流输出标记以后 如果是page日志 先调用解析方法 然后输出
                     JSONObject pageData = parseData(common, ts, GmallConstant.PAGE, jsonObject);
                     //测流输出
-                    context.output(page, pageData.toString());
+                    context.output(page, pageData.toJSONString());
 
                     //还有数组情况
                     if (jsonObject.containsKey(GmallConstant.ACTION)) {
@@ -332,7 +334,13 @@ public class DwdBaseLog extends BaseDataStreamApp {
                 if (jsonObject.containsKey(GmallConstant.ERR)) {
                     //同样进行解析抽取 然后测流输出
                     JSONObject errData = parseData(common, ts, GmallConstant.ERR, jsonObject);
-                    context.output(err, errData.toString());
+                    if (jsonObject.containsKey(GmallConstant.START)) {
+                        errData.putAll(jsonObject.getJSONObject(GmallConstant.START));
+                    }
+                    if (jsonObject.containsKey(GmallConstant.PAGE)) {
+                        errData.putAll(jsonObject.getJSONObject(GmallConstant.PAGE));
+                    }
+                    context.output(err, errData.toJSONString());
                 }
 
 

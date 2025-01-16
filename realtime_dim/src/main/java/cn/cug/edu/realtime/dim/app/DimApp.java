@@ -7,6 +7,7 @@ import cn.cug.edu.common.util.HbaseUtil;
 import cn.cug.edu.common.util.JdbcUtil;
 import cn.cug.edu.common.util.MysqlUtil;
 import cn.cug.edu.realtime.dim.app.function.HbaseSink;
+import cn.cug.edu.realtime.dim.app.function.HbaseSinkFunction2;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.google.common.collect.Maps;
@@ -29,6 +30,7 @@ import org.apache.flink.streaming.api.functions.co.BroadcastProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.hadoop.hbase.client.Admin;
 
+import java.sql.SQLException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,6 +44,17 @@ public class DimApp extends BaseDataStreamApp {
 
     //每一个job必须要有一个main方法来实现job的操作
     public static void main(String[] args) {
+//        //在这里测试一下dbutils工具类好不好使
+//
+//        try {
+//            List<TableProcess> tableProcesses = JdbcUtil.queryList(" select * from table_process ", TableProcess.class);
+//            log.warn("开始测试。。。");
+//
+//        } catch (SQLException e) {
+//            throw new RuntimeException(e);
+//        }
+
+
         new DimApp().start(10001,4,"dim_app_0803", ConfigUtil.getString("TOPIC_ODS_DB"));
     }
 
@@ -50,7 +63,7 @@ public class DimApp extends BaseDataStreamApp {
     protected void hadle(StreamExecutionEnvironment env, DataStreamSource<String> kfSource) {
 
         //先简单的输出
-        kfSource.print();
+       // kfSource.print();
 
         // 先做一个简单的etl
         SingleOutputStreamOperator<String> etlData = etl(kfSource);
@@ -61,27 +74,34 @@ public class DimApp extends BaseDataStreamApp {
         //定义一个方法得到配置流
         SingleOutputStreamOperator<TableProcess> dimConfig = getDimConfig(env);
 
+        //调试一下
+       //dimConfig.print();
+
+        // 调试一下从配置流中读到的数据格式
+       // env.fromSource(MysqlUtil.getMysqlSource(), WatermarkStrategy.noWatermarks(), "config").print();
+
         // 接下来就可以将两个流连接在一块了，但是在连接之前，我们需要先根据配置流来把表创建好，其实这个操作可以在刚刚那个map中创建，拆开再来一次map也是可以的
 
         // 因为配置流中的配置表就是需要和habse中表对应的，并且op的不同来执行对habse的表来操作
         //定义一个方法实现根据配置流来对hbase表进行创建
         SingleOutputStreamOperator<TableProcess> dimConfighbaseTable = createHbaseTable(dimConfig);
         // 调试的时候可以打印一下 habsetable.print();
-
+//        dimConfighbaseTable.print();
         // 将两个流进行连接
         SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> tuple2SingleOutputStreamOperator = connectDim(etlData, dimConfighbaseTable);
 
         //调试的时候也可以将其打印
-        tuple2SingleOutputStreamOperator.print();
+//        tuple2SingleOutputStreamOperator.print();
 
-        //接下来还有一个过程中 就是在配置表中 每个表的需要得到的字段是限定的，所以不是所有的维度数据的字段都需要
-        //定义一个方法实现字段的过滤
+//        接下来还有一个过程中 就是在配置表中 每个表的需要得到的字段是限定的，所以不是所有的维度数据的字段都需要
+//        定义一个方法实现字段的过滤
         SingleOutputStreamOperator<Tuple2<JSONObject, TableProcess>> operator = dropFields(tuple2SingleOutputStreamOperator);
         //可以通过print来调试
-        operator.print();
+//        operator.print();
 
-        operator.addSink(new HbaseSink());
+     //   operator.addSink(new HbaseSink());
         //同样也可以调试的时候打印一下
+        operator.addSink(new HbaseSinkFunction2());
         operator.print();
 
     }
@@ -153,6 +173,8 @@ public class DimApp extends BaseDataStreamApp {
         // 在使用lambda表达式时 需要显示的返回值的泛型
         SingleOutputStreamOperator<TableProcess> map = env.fromSource(MysqlUtil.getMysqlSource(), WatermarkStrategy.noWatermarks(), "config")
                 .setParallelism(1)
+                //因为后续这个配置表还会加其他的层的配置信息所以需要只过滤出dim层的数据作为dim的配置流
+                .filter(str -> str.contains("DIM")).setParallelism(1)
                 // 在此之前调式的时候为了知道cdc读取mysql的数据格式 ，可以先print一下得到数据格式来更好的进行封装
                 .map(jsonStr -> {
 
@@ -204,19 +226,21 @@ public class DimApp extends BaseDataStreamApp {
 
                 // 根据op的类型来判断是否创建表 或者删除表
                 //如果op是r 说明需要创建表 如果是u 需要先删除对应的表，再创建表，如果是c 需要创建表，如果是d 就需要删除表
+                String hbaseNamespace = ConfigUtil.getString("HBASE_NAMESPACE");
                 String opType = tableProcess.getOp();
                 String sinkFamily = tableProcess.getSinkFamily();
+                String sinkTable = tableProcess.getSinkTable();
                 if ("d".equals(opType)) {
                     //调用方法执行删除表
                     // 库名在tableprocess中没有 应该从配置文件中读取
-                    HbaseUtil.dropTable(admin, ConfigUtil.getString("HBASE_NAMESPACE"), tableProcess.getSinkTable());
+                    HbaseUtil.dropTable(admin,hbaseNamespace , tableProcess.getSinkTable());
                 } else if ("u".equals(opType)) {
                     //先删除后创建
-                    HbaseUtil.dropTable(admin, ConfigUtil.getString("HBASE_NAMESPACE"), tableProcess.getSinkTable());
-                    HbaseUtil.createTable(admin, ConfigUtil.getString("HBASE_NAMESPACE"), sinkFamily);
+                    HbaseUtil.dropTable(admin,hbaseNamespace, tableProcess.getSinkTable());
+                    HbaseUtil.createTable(admin,hbaseNamespace,sinkTable , sinkFamily);
                 } else {
                     //其他两种情况都需要创建表
-                    HbaseUtil.createTable(admin, ConfigUtil.getString("HBASE_NAMESPACE"), sinkFamily);
+                    HbaseUtil.createTable(admin, hbaseNamespace,sinkTable, sinkFamily);
                 }
 
                 return tableProcess;
@@ -259,17 +283,24 @@ public class DimApp extends BaseDataStreamApp {
              * 然后考虑用jdbc的方式去读取mysql 因为要用到java来操作mysql
              */
 
-            private final HashMap<String,TableProcess> hashMap = new HashMap<>();
+            private  HashMap<String,TableProcess> hashMap = new HashMap<>();
             @Override
             public void open(Configuration parameters) throws Exception {
                 //通过jdbc工具类读取配置数据
-                String sql = "select * from table_process where sink_type = 'DIM' ";
+                String sql = "  select * from table_process where sink_type = 'DIM' ";
 
                 List<TableProcess> tableProcesses = JdbcUtil.queryList(sql, TableProcess.class);
 
 //                封装到一个map中 这个map在其他方法也是要使用的
 
-                tableProcesses.stream().map(t -> hashMap.put(t.getSourceTable(),t));
+                tableProcesses.stream().forEach(t -> hashMap.put(t.getSourceTable(),t));
+
+             //   tableProcesses.stream().map(t -> hashMap.put(t.getSourceTable(),t));
+
+//                for (TableProcess tableProcess : tableProcesses) {
+//                    hashMap.put(tableProcess.getSourceTable(),tableProcess);
+//                }
+                log.warn("测试一下");
 
             }
 
@@ -292,13 +323,13 @@ public class DimApp extends BaseDataStreamApp {
 
                 // 取出原始数据字段中type 目前是string 为了方便可以将其string转为jsonobject
                 JSONObject jsonObject = JSON.parseObject(s);
-                String type = jsonObject.getString("type");
+                String type = jsonObject.getString("type").replace("bootstrap-","");
                 // 获取原始数据中的table
                 String table = jsonObject.getString("table");
                 // 获取状态
                 ReadOnlyBroadcastState<String, TableProcess> broadcastState = readOnlyContext.getBroadcastState(mapstatdescriptor);
                 TableProcess tableProcess = broadcastState.get(table);
-                String sourceType = tableProcess.getSourceType();
+
 
                 // 处理open方法中的结果
                 //可以知道首先获取到的tableProcess是null的情况有两种
@@ -316,14 +347,15 @@ public class DimApp extends BaseDataStreamApp {
                     // 目前的data 在原始数据中是一个没有操作类型的数据 就是对于这条数据来说没有type类型，应该对每条数据都补充type类型
 
                     JSONObject data = jsonObject.getJSONObject("data");
+                    String sourceType = tableProcess.getSourceType();
 
                     // 为每条维度数据补充type类型
                     data.put("op_type",type);
 
-                    if ("All".equals(sourceType)) {
+                    if ("ALL".equals(sourceType)) {
                         //说明所有操作都可以
                         //向下游输出即可  向下游封装时 原始数据中其实真正的数据在data上，所以其实就把data封装成jsonobject为tuple2中key即可
-                        collector.collect(Tuple2.of(jsonObject, tableProcess));
+                        collector.collect(Tuple2.of(data, tableProcess));
                     } else {
                         // 将sourcetype切分，然后将其和type来判断
                         String[] split = sourceType.split(",");
@@ -347,8 +379,10 @@ public class DimApp extends BaseDataStreamApp {
                 if ("d".equals(op)) {
                     //删除状态中对应的数据
                     broadcastState.remove(tableProcess.getSourceTable());
+                    hashMap.remove(tableProcess.getSourceTable());
                 } else {
                     broadcastState.put(tableProcess.getSourceTable(), tableProcess);
+                    hashMap.put(tableProcess.getSourceTable(), tableProcess);
                 }
 
             }
@@ -371,8 +405,8 @@ public class DimApp extends BaseDataStreamApp {
                 TableProcess f1 = jsonObjectTableProcessTuple2.f1;
                 String sinkColumns = f1.getSinkColumns(); //这里存放着所有需要的字段 为了进一步封装 在拼接一个data中的op_type字段表示的是对这条数据的操作
                 //为什么是optype 是因为在data中上一步提前封装了这个字段
-                String opType = f0.getString("op_type");
-                String concat = sinkColumns.concat(opType);
+              //  String opType = f0.getString("op_type");
+                String concat = sinkColumns.concat(",").concat("op_type");
                 //将其分割后转为set集合
                 Set<String> filedSet = Arrays.stream(concat.split(",")).collect(Collectors.toSet());
                 //获取的思路就要判断f0中的字段是否在fildset中如果在的话就重新封装一个jsonobject

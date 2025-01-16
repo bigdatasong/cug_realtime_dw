@@ -32,9 +32,12 @@ public abstract class BaseDataStreamApp {
         //2.开启checkpoint 每多久备份一次的参数可以在配置文件中定义好
         env.enableCheckpointing(ConfigUtil.getInt("CK_INTERVAL"));
         //设置ck的存储目录 存储目录的路径应该有一样的前缀 以及可以用每个job名字为后缀拼接
+        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3,2000));
+
         //而每个job名字也是不一样的，需要参数传递
         CheckpointConfig checkpointConfig = env.getCheckpointConfig();
-        checkpointConfig.setCheckpointStorage(ConfigUtil.getString("CK_STORAGE") + ckAndGroupIdAndJobName);
+       checkpointConfig.setCheckpointStorage(ConfigUtil.getString("CK_STORAGE") + ckAndGroupIdAndJobName);
+//        checkpointConfig.setCheckpointStorage("hdfs://hadoop101:9820/cug_realtime_gmall/ck/" + ckAndGroupIdAndJobName);
         // 设置checkpoint的并发数
         checkpointConfig.setMaxConcurrentCheckpoints(1); //默认也是1
         // 6. 设置两个 checkpoint 之间的最小间隔. 如果这设置了, 则可以忽略setMaxConcurrentCheckpoints

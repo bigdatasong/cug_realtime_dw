@@ -21,8 +21,12 @@ public class ConfigUtil {
         return Integer.parseInt(config.getString(name));
     }
 
+    public static Boolean getBooleanValue(String name){
+        return Boolean.valueOf(config.getString(name));
+    }
+
     public static void main(String[] args) {
-        String kafkaBrokers = getString("KAFKA_BROKERS");
+        String kafkaBrokers = getString("CK_STORAGE");
         System.out.println(kafkaBrokers);
     }
 }

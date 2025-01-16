@@ -5,6 +5,7 @@ import com.alibaba.druid.pool.DruidDataSource;
 import com.alibaba.druid.pool.DruidPooledConnection;
 import com.mysql.cj.x.protobuf.MysqlxCursor;
 import org.apache.commons.dbutils.BasicRowProcessor;
+import org.apache.commons.dbutils.GenerousBeanProcessor;
 import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.handlers.BeanListHandler;
 
@@ -61,7 +62,7 @@ public class JdbcUtil {
         QueryRunner queryRunner = new QueryRunner();
         // resultsethandler中有很多的子类，其中BeanListHandler表示的通过一个sql
         //语句返回一个list集合 list集合的每一个元素都可以指定一个bean的类型返回一个bean
-        List<T> query = queryRunner.query(JdbcUtil.getconnection(), sql, new BeanListHandler<>(t, new BasicRowProcessor()));
+        List<T> query = queryRunner.query(JdbcUtil.getconnection(), sql, new BeanListHandler<>(t, new BasicRowProcessor(new GenerousBeanProcessor())));
 
         return query;
 

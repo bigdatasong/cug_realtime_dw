@@ -18,7 +18,7 @@ public class MysqlUtil {
                 .hostname(ConfigUtil.getString("MYSQL_HOST"))
                 .port(ConfigUtil.getInt("MYSQL_PORT"))
                 .databaseList(ConfigUtil.getString("CONFIG_DATABASE")) // 设置捕获的数据库， 如果需要同步整个数据库，请将 tableList 设置为 ".*".
-                .tableList(ConfigUtil.getString("table_process")) // 设置捕获的表
+                .tableList(ConfigUtil.getString("CONFIG_DATABASE")+'.' + ConfigUtil.getString("CONFIG_TABLE")) // 设置捕获的表
                 .username(ConfigUtil.getString("MYSQL_USER"))
                 .password(ConfigUtil.getString("MYSQL_PASSWORD"))
                 // 表示的是第一次读取时 读取快照，即配置表中原有的数据

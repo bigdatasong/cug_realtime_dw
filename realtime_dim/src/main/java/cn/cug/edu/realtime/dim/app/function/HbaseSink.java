@@ -41,15 +41,15 @@ public class HbaseSink extends RichSinkFunction<Tuple2<JSONObject, TableProcess>
         //在open方法中完成table对象的创建
         //调用工具类需要库名和表名 库名可以从配置文件中获取 而因为open方法是在task创建的时候只执行一次
         //但是task创建的时候流的数据还没来 所以获取不到流中的数据，所以还是需要从mysql的表中读取出来 和上一步的操作是一样的
-        //所以同样 先用一个map来存 从msyql配置表中读取的数据 但是这个map将来是要用到addsink中，所以key可以是sink_table value就是
+        //所以同样 先用一个map来存 从msyql配置表中读取的数据 但是这个map将来是要用到addsink中，所以key可以是source_table value就是
         //对应的table对象
 
-        List<TableProcess> tableProcesses = JdbcUtil.queryList("select * from rt_gmallConfig where sink_type = 'DIM' ", TableProcess.class);
+        List<TableProcess> tableProcesses = JdbcUtil.queryList("select * from table_process where sink_type = 'DIM' ", TableProcess.class);
         for (TableProcess tableProcess : tableProcesses) {
 
 
 
-            tableHashMap.put(tableProcess.getSinkTable(),HbaseUtil.getTable(ConfigUtil.getString("CONFIG_DATABASE"),tableProcess.getSinkTable()));
+            tableHashMap.put(tableProcess.getSourceTable(),HbaseUtil.getTable(ConfigUtil.getString("HBASE_NAMESPACE"),tableProcess.getSinkTable()));
 
         }
 
@@ -80,7 +80,7 @@ public class HbaseSink extends RichSinkFunction<Tuple2<JSONObject, TableProcess>
         String sinkFamily = tab.getSinkFamily(); //这个是列族名
         //而对于具体的列值和列名 其实在data中就是要写入的字段以及字段值，所以可以不用在这里获取即可
         //从map中获取到对应的table对象执行put写入
-        Table table = tableHashMap.get(tab.getSinkTable());
+        Table table = tableHashMap.get(tab.getSourceTable());
         //调用table的put方法 需要一个put对象 干脆定义一个方法来返回一个put 为什么不直接使用hbaseutil中的getput方法呢 是因为那个返回的put
         //只是一行中的一个cell，而我们是有多个列名 即一行多个cell 所以这里再定义一个方法实现返回一个put对象 一行的数据中多个列
 
